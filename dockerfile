@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     npm
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd sockets
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -24,11 +24,24 @@ WORKDIR /var/www/html
 # Copy project files
 COPY . .
 
+# Create .env file and generate app key
+RUN if [ -f .env.example ]; then cp .env.example .env; else \
+    echo "APP_NAME=Laravel" > .env && \
+    echo "APP_ENV=production" >> .env && \
+    echo "APP_KEY=" >> .env && \
+    echo "APP_DEBUG=false" >> .env && \
+    echo "APP_URL=http://localhost" >> .env && \
+    echo "DB_CONNECTION=sqlite" >> .env && \
+    echo "DB_DATABASE=/var/www/html/database/database.sqlite" >> .env; \
+    fi
+
+RUN php artisan key:generate --no-interaction
+
 # Copy SSL certificate
 COPY ssl/isrgrootx.pem /var/www/html/ssl/isrgrootx.pem
 
 # Install dependencies and build
-RUN composer install --no-dev --optimize-autoloader
+RUN php -d memory_limit=512M /usr/bin/composer install --no-dev --optimize-autoloader --no-interaction
 RUN npm install && npm run build
 
 # Set permissions
