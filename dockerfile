@@ -25,7 +25,7 @@ WORKDIR /var/www/html
 COPY . .
 
 # Copy SSL certificate
-COPY ssl/isrgrootx1.pem /var/www/html/ssl/isrgrootx.pem
+COPY ssl/isrgrootx.pem /var/www/html/ssl/isrgrootx.pem
 
 # Install dependencies and build
 RUN composer install --no-dev --optimize-autoloader
