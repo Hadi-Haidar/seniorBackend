@@ -52,8 +52,13 @@ RUN npm ci --only=production
 
 # Copy application code
 COPY . .
-# Copy SSL certificate
-COPY ssl/isrgrootx1.pem /var/www/html/ssl/isrgrootx1.pem
+
+# Copy SSL certificate if it exists
+RUN if [ -f ssl/isrgrootx.pem ]; then \
+        mkdir -p /var/www/html/ssl && \
+        cp ssl/isrgrootx.pem /var/www/html/ssl/; \
+    fi
+
 # Copy environment file for production
 RUN if [ ! -f .env ]; then cp .env.example .env 2>/dev/null || echo "No .env.example found"; fi
 
