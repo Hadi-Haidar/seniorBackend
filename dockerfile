@@ -52,11 +52,27 @@ COPY bootstrap/ ./bootstrap/
 COPY config/ ./config/
 COPY database/ ./database/
 
+# Copy or create .env file BEFORE composer install (package discovery needs it)
+COPY .env.example .env 2>/dev/null || echo "No .env.example found"
+RUN if [ ! -f .env ]; then \
+        echo "APP_NAME=Laravel" > .env && \
+        echo "APP_ENV=production" >> .env && \
+        echo "APP_KEY=" >> .env && \
+        echo "APP_DEBUG=false" >> .env && \
+        echo "APP_URL=http://localhost" >> .env && \
+        echo "DB_CONNECTION=mysql" >> .env; \
+    fi
+
 # Create necessary directories
 RUN mkdir -p storage/app storage/framework storage/logs bootstrap/cache
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Clear composer cache and install dependencies
+RUN composer clear-cache
+
+# Install PHP dependencies with fallback
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts || \
+    (echo "Trying with scripts..." && composer install --no-dev --optimize-autoloader --no-interaction) || \
+    (echo "Trying without optimization..." && composer install --no-dev --no-interaction)
 
 # Install Node.js dependencies  
 RUN npm ci --only=production
@@ -64,17 +80,9 @@ RUN npm ci --only=production
 # Copy the rest of the application
 COPY . .
 
-# Handle environment file
-RUN if [ ! -f .env ]; then \
-        if [ -f .env.example ]; then \
-            cp .env.example .env; \
-        else \
-            echo "APP_NAME=Laravel" > .env && \
-            echo "APP_ENV=production" >> .env && \
-            echo "APP_KEY=" >> .env && \
-            echo "APP_DEBUG=false" >> .env && \
-            echo "APP_URL=http://localhost" >> .env; \
-        fi \
+# Ensure .env file is properly set up (overwrite if needed)
+RUN if [ -f .env.example ] && [ ! -s .env ]; then \
+        cp .env.example .env; \
     fi
 
 # Set proper permissions
