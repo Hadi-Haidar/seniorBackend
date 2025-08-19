@@ -43,24 +43,26 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Allow composer to run as superuser
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# Copy all application files first
-COPY . .
+# Copy dependency files first (for better caching)
+COPY composer.json composer.lock package.json package-lock.json ./
 
-# Clear composer cache
-RUN composer clear-cache
+# Copy essential Laravel files needed for composer install
+COPY artisan ./
+COPY bootstrap/ ./bootstrap/
+COPY config/ ./config/
+COPY database/ ./database/
 
-# Install PHP dependencies without scripts first, then with scripts
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts || \
-    composer install --no-dev --optimize-autoloader --no-interaction
+# Create necessary directories
+RUN mkdir -p storage/app storage/framework storage/logs bootstrap/cache
 
-# Install Node.js dependencies
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Install Node.js dependencies  
 RUN npm ci --only=production
 
-# Copy SSL certificate if it exists
-RUN if [ -f ssl/isrgrootx.pem ]; then \
-        mkdir -p /var/www/html/ssl && \
-        cp ssl/isrgrootx.pem /var/www/html/ssl/; \
-    fi
+# Copy the rest of the application
+COPY . .
 
 # Handle environment file
 RUN if [ ! -f .env ]; then \
@@ -75,19 +77,30 @@ RUN if [ ! -f .env ]; then \
         fi \
     fi
 
-# Set permissions
+# Set proper permissions
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
+    && chmod -R 755 /var/www/html/bootstrap/cache \
+    && find /var/www/html -type f -name "*.php" -exec chmod 644 {} \; \
+    && find /var/www/html -type d -exec chmod 755 {} \;
+
+# Set SSL certificate permissions if it exists (no copying needed since we already copied everything)
+RUN if [ -f ssl/isrgrootx.pem ]; then \
+        chmod 644 ssl/isrgrootx.pem && \
+        chown www-data:www-data ssl/isrgrootx.pem; \
+    fi
 
 # Build frontend assets
-RUN npm run build 2>/dev/null || echo "No build script found, skipping..."
+RUN npm run build || echo "No build script found or build failed, continuing..."
 
-# Generate application key and optimize for production
-RUN php artisan key:generate --force || echo "Key generation failed"
-RUN php artisan config:cache || echo "Config cache failed"
-RUN php artisan route:cache || echo "Route cache failed"
-RUN php artisan view:cache || echo "View cache failed"
+# Laravel optimizations
+RUN php artisan key:generate --force \
+    && php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache
+
+# Final permission fix after all operations
+RUN chown -R www-data:www-data /var/www/html
 
 # Expose port 80
 EXPOSE 80
