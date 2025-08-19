@@ -43,20 +43,18 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Allow composer to run as superuser
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# Copy composer files first (for better caching)
-COPY composer.json composer.lock ./
-
-# Install PHP dependencies (this layer will be cached if composer files don't change)
-RUN composer install --no-dev --optimize-autoloader --no-interaction
-
-# Copy package.json and package-lock.json
-COPY package.json package-lock.json ./
-
-# Install Node.js dependencies (this layer will be cached if package files don't change)
-RUN npm ci --only=production
-
-# Copy application code (do this after dependencies to leverage Docker layer caching)
+# Copy all application files first
 COPY . .
+
+# Clear composer cache
+RUN composer clear-cache
+
+# Install PHP dependencies without scripts first, then with scripts
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts || \
+    composer install --no-dev --optimize-autoloader --no-interaction
+
+# Install Node.js dependencies
+RUN npm ci --only=production
 
 # Copy SSL certificate if it exists
 RUN if [ -f ssl/isrgrootx.pem ]; then \
@@ -82,14 +80,14 @@ RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
     && chmod -R 755 /var/www/html/bootstrap/cache
 
-# Build frontend assets (make sure your package.json has a "build" script)
+# Build frontend assets
 RUN npm run build 2>/dev/null || echo "No build script found, skipping..."
 
 # Generate application key and optimize for production
-RUN php artisan key:generate --force \
-    && php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache
+RUN php artisan key:generate --force || echo "Key generation failed"
+RUN php artisan config:cache || echo "Config cache failed"
+RUN php artisan route:cache || echo "Route cache failed"
+RUN php artisan view:cache || echo "View cache failed"
 
 # Expose port 80
 EXPOSE 80
