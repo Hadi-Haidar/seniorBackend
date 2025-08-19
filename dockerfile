@@ -21,7 +21,19 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy project files
+# Copy composer files first for better caching
+COPY composer.json composer.lock ./
+
+# Install PHP dependencies
+RUN php -d memory_limit=512M /usr/bin/composer install --no-dev --optimize-autoloader --no-interaction
+
+# Copy package.json for npm dependencies
+COPY package.json package-lock.json ./
+
+# Install npm dependencies
+RUN npm install
+
+# Copy the rest of the project files
 COPY . .
 
 # Create .env file and generate app key
@@ -35,14 +47,15 @@ RUN if [ -f .env.example ]; then cp .env.example .env; else \
     echo "DB_DATABASE=/var/www/html/database/database.sqlite" >> .env; \
     fi
 
+# Generate application key (now that vendor/autoload.php exists)
 RUN php artisan key:generate --no-interaction
 
-# Copy SSL certificate
-COPY ssl/isrgrootx.pem /var/www/html/ssl/isrgrootx.pem
+# Create SSL directory and copy certificates if they exist
+RUN mkdir -p /var/www/html/ssl
+RUN if [ -f ssl/isrgrootx.pem ]; then cp ssl/isrgrootx.pem /var/www/html/ssl/; fi
 
-# Install dependencies and build
-RUN php -d memory_limit=512M /usr/bin/composer install --no-dev --optimize-autoloader --no-interaction
-RUN npm install && npm run build
+# Build frontend assets
+RUN npm run build
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html
